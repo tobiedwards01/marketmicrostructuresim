@@ -6,6 +6,11 @@ Running log of non-trivial design choices: what was picked, why, and what altern
 
 ## Phase 2
 
+### NoiseTrader anchors to the live mid price, not a fixed reference price
+**Decision:** `NoiseTrader.act()` centers its random price offset on `market.book.mid_price` when available, falling back to its configured `reference_price` only when the book is empty -- same pattern `NaiveMarketMaker` already used.
+**Why:** Found during a design review before starting Phase 3. A noise trader anchored to a static price doesn't track where the market actually is; over a long enough run (or with enough informed/market-maker activity moving the price), it would end up quoting a growing distance from the live book, which would quietly distort exactly the metrics Phase 3 is about to measure -- spread and depth would partly reflect "how far the market has drifted from noise traders' fixed anchor" rather than genuine liquidity dynamics.
+**Alternative considered:** Leave it anchored to the fixed reference price, since it's simpler and the Phase 2 demo run didn't drift far in 200 time units. Rejected -- the distortion risk grows with simulation length and Phase 3+ will run longer, more varied scenarios, and this was a one-line fix consistent with how the market maker already worked.
+
 ### best_bid/best_ask purge cancelled orders from the front on access
 **Decision:** `OrderBook.best_bid`/`best_ask` now walk past (and delete) any cancelled order sitting at the front of the best price level before reporting a price, rather than trusting whatever `SortedDict.peekitem` returns.
 **Why:** Lazy deletion (see Phase 0) means a cancelled order can sit in its deque until matching happens to walk past it. That's fine for matching itself, which already skips cancelled orders -- but `best_bid`/`best_ask` were reading the raw price key regardless of whether anything live was actually resting there. Discovered via `NaiveMarketMaker`: it cancels its old quote and immediately reads `mid_price` to decide where to re-quote, and was getting a stale price back for a level with nothing tradeable left in it. Since these are read properties used for decisions (not just display), a stale answer is a real correctness bug, not a cosmetic one.

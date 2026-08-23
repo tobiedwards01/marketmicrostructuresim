@@ -14,6 +14,7 @@ class MarketAccess(Protocol):
 
     time: float
     book: OrderBook
+    trade_log: list[Trade]
 
     def submit_limit(self, agent_id: int, side: Side, price: int, quantity: int) -> tuple[Order, list[Trade]]: ...
 
