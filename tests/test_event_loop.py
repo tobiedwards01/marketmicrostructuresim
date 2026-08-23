@@ -113,3 +113,58 @@ class TestSubmitMarketAndCancel:
         from mm_sim.models import OrderStatus
 
         assert order.status is OrderStatus.CANCELLED
+
+
+class TestMetricsRecording:
+    def test_every_submission_and_cancel_records_a_book_snapshot(self):
+        agent = RecordingAgent(1, wake_times=[])
+        loop = EventLoop([agent])
+
+        order, _ = loop.submit_limit(agent_id=1, side=Side.BUY, price=10_000, quantity=5)
+        loop.submit_limit(agent_id=2, side=Side.SELL, price=10_100, quantity=5)
+        loop.cancel(order.order_id)
+
+        assert len(loop.book_snapshots) == 3
+
+    def test_snapshot_reflects_book_state_at_that_point(self):
+        agent = RecordingAgent(1, wake_times=[])
+        loop = EventLoop([agent])
+
+        loop.submit_limit(agent_id=1, side=Side.BUY, price=9_900, quantity=10)
+        loop.submit_limit(agent_id=2, side=Side.SELL, price=10_100, quantity=5)
+
+        snap = loop.book_snapshots[-1]
+        assert snap.best_bid == 9_900
+        assert snap.best_ask == 10_100
+        assert snap.spread == 200
+        assert snap.bid_depth == 10
+        assert snap.ask_depth == 5
+
+    def test_order_impact_is_zero_when_order_just_rests_without_moving_best_price(self):
+        agent = RecordingAgent(1, wake_times=[])
+        loop = EventLoop([agent])
+        loop.submit_limit(agent_id=1, side=Side.BUY, price=9_900, quantity=10)
+        loop.submit_limit(agent_id=1, side=Side.SELL, price=10_100, quantity=10)
+
+        # a worse-priced bid than the existing best doesn't move the mid at all
+        loop.submit_limit(agent_id=2, side=Side.BUY, price=9_800, quantity=5)
+
+        impact = loop.order_impacts[-1]
+        assert impact.price_impact == 0
+        assert impact.filled_quantity == 0
+
+    def test_order_impact_reflects_filled_quantity_and_mid_price_move(self):
+        agent = RecordingAgent(1, wake_times=[])
+        loop = EventLoop([agent])
+        loop.submit_limit(agent_id=1, side=Side.BUY, price=9_900, quantity=10)
+        loop.submit_limit(agent_id=1, side=Side.SELL, price=10_100, quantity=10)
+        # mid is 10_000 here
+
+        order, trades = loop.submit_market(agent_id=2, side=Side.BUY, quantity=10)
+
+        impact = loop.order_impacts[-1]
+        assert impact.filled_quantity == 10
+        assert impact.mid_price_before == 10_000
+        # buying wipes out the ask side entirely -- best_ask becomes None, so mid is undefined after
+        assert impact.mid_price_after is None
+        assert impact.price_impact is None

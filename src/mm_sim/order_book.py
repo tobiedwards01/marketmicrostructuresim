@@ -70,6 +70,27 @@ class OrderBook:
             return None
         return (bid + ask) / 2
 
+    def _depth(self, book: "SortedDict[int, deque[Order]]") -> int:
+        """Total live resting quantity on one side. Excludes cancelled orders --
+        lazy deletion means they can still be sitting in a deque uncounted-for
+        until matching or a best_bid/best_ask read happens to purge them, so a
+        naive sum over the raw deques would overcount actual live liquidity.
+        """
+        return sum(
+            order.remaining
+            for level in book.values()
+            for order in level
+            if order.status is not OrderStatus.CANCELLED
+        )
+
+    @property
+    def bid_depth(self) -> int:
+        return self._depth(self.bids)
+
+    @property
+    def ask_depth(self) -> int:
+        return self._depth(self.asks)
+
     def _book_for(self, side: Side) -> "SortedDict[int, deque[Order]]":
         return self.bids if side is Side.BUY else self.asks
 
