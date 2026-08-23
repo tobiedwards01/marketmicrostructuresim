@@ -1,6 +1,6 @@
 from collections import deque
 from itertools import count
-from typing import Optional
+from typing import Callable, Optional
 
 from sortedcontainers import SortedDict
 
@@ -57,25 +57,19 @@ class OrderBook:
         book[order.price].append(order)
         self.orders_by_id[order.order_id] = order
 
-    def _crosses(self, order: Order) -> bool:
-        """Whether `order` (at its price) can currently trade against the opposite side."""
-        opposite = self._book_for(_opposite(order.side))
-        if not opposite:
-            return False
-        if order.side is Side.BUY:
-            return opposite.peekitem(0)[0] <= order.price
-        return opposite.peekitem(-1)[0] >= order.price
-
-    def submit_limit_order(self, order: Order) -> list[Trade]:
-        """Match `order` against the opposite side, resting any unfilled remainder."""
-        if order.order_type is not OrderType.LIMIT:
-            raise ValueError("submit_limit_order requires a LIMIT order")
-
+    def _match(self, order: Order, price_ok: Callable[[int], bool]) -> list[Trade]:
+        """Sweep the opposite side, filling `order` against resting orders while
+        `price_ok(level_price)` holds. Does not rest or finalize `order`'s status --
+        callers do that, since limit and market orders behave differently once the
+        sweep is done.
+        """
         trades: list[Trade] = []
         opposite = self._book_for(_opposite(order.side))
 
-        while order.remaining > 0 and self._crosses(order):
+        while order.remaining > 0 and opposite:
             level_price = opposite.peekitem(0 if order.side is Side.BUY else -1)[0]
+            if not price_ok(level_price):
+                break
             level = opposite[level_price]
             resting = level[0]  # oldest order at this price level (time priority)
 
@@ -105,11 +99,38 @@ class OrderBook:
             else:
                 resting.status = OrderStatus.PARTIALLY_FILLED
 
+        return trades
+
+    def submit_limit_order(self, order: Order) -> list[Trade]:
+        """Match `order` against the opposite side, resting any unfilled remainder."""
+        if order.order_type is not OrderType.LIMIT:
+            raise ValueError("submit_limit_order requires a LIMIT order")
+
+        if order.side is Side.BUY:
+            price_ok = lambda level_price: level_price <= order.price
+        else:
+            price_ok = lambda level_price: level_price >= order.price
+
+        trades = self._match(order, price_ok)
+
         if order.remaining == 0:
             order.status = OrderStatus.FILLED
         else:
             if order.remaining < order.quantity:
                 order.status = OrderStatus.PARTIALLY_FILLED
             self._rest(order)
+
+        return trades
+
+    def submit_market_order(self, order: Order) -> list[Trade]:
+        """Sweep `order` against the opposite side ignoring price; any unfilled
+        remainder is cancelled immediately rather than resting (IOC semantics).
+        """
+        if order.order_type is not OrderType.MARKET:
+            raise ValueError("submit_market_order requires a MARKET order")
+
+        trades = self._match(order, price_ok=lambda level_price: True)
+
+        order.status = OrderStatus.FILLED if order.remaining == 0 else OrderStatus.CANCELLED
 
         return trades
