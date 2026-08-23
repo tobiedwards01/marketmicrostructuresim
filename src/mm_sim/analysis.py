@@ -16,6 +16,27 @@ def mid_price_returns(snapshots: list[BookSnapshot]) -> list[float]:
     ]
 
 
+def estimate_volatility(snapshots: list[BookSnapshot]) -> float:
+    """Realized volatility of the mid price, in price units per sqrt(unit
+    simulated time) -- i.e. the sigma such that Var(S_t - S_0) ~= sigma^2 * t,
+    which is what the Avellaneda-Stoikov model needs (it assumes the mid price
+    follows dS = sigma * dW, working in raw price units, not log-returns).
+
+    Uses the standard realized-variance estimator: sum of squared price changes
+    divided by total elapsed time. Timestamped snapshots (not evenly spaced)
+    are used directly rather than resampled to a fixed grid, since the
+    estimator doesn't require even spacing.
+    """
+    points = [(s.timestamp, s.mid_price) for s in snapshots if s.mid_price is not None]
+    if len(points) < 2:
+        return 0.0
+    elapsed = points[-1][0] - points[0][0]
+    if elapsed <= 0:
+        return 0.0
+    sum_sq_changes = sum((points[i][1] - points[i - 1][1]) ** 2 for i in range(1, len(points)))
+    return (sum_sq_changes / elapsed) ** 0.5
+
+
 def pearson_correlation(xs: list[float], ys: list[float]) -> float:
     n = len(xs)
     if n != len(ys) or n == 0:

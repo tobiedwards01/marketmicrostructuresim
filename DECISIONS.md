@@ -4,6 +4,13 @@ Running log of non-trivial design choices: what was picked, why, and what altern
 
 ---
 
+## Phase 5
+
+### Added per-state visit-count tracking to QLearningMarketMaker
+**Decision:** The agent now tracks `visit_counts: dict[state, int]`, incremented every time `_choose_quotes` processes that state, persisted through `save`/`load` and untouched by `reset_episode` (same treatment as the Q-table itself).
+**Why:** Building the Avellaneda-Stoikov comparison surfaced a real training issue: the learned skew-vs-inventory relationship for extreme inventory buckets looked essentially inverted from what theory (and the AS closed form) predicts. Before writing that up as a genuine finding, I checked the raw Q-table for those states directly -- extreme-inventory states had Q-values ranging wildly (e.g. one state's 25 action-values spanned -5 to 940 with no consistent structure) compared to the well-visited neutral-inventory states (tighter, more internally consistent ranges). That's the signature of too few updates, not a real learned preference. Visit counts make this checkable with a number instead of a guess -- and it's a genuine, well-known tabular-RL issue (state-visitation imbalance under a self-correcting policy: a market maker that's working keeps inventory near neutral, so it visits extreme-inventory states rarely almost *by construction*, no matter how long you train).
+**Alternative considered:** Just retrain for many more episodes and hope the tails converge. Still done (doubled to 1200 episodes), but visit counts are what make it possible to say whether that actually worked rather than assuming it did -- and if extreme states are still under-visited afterward, that's a real, reportable limitation rather than a silently wrong comparison.
+
 ## Phase 3
 
 ### NoiseTrader holds one live order, cancelled and replaced each wake
