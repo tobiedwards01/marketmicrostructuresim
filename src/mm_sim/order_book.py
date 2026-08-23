@@ -71,7 +71,16 @@ class OrderBook:
             if not price_ok(level_price):
                 break
             level = opposite[level_price]
-            resting = level[0]  # oldest order at this price level (time priority)
+
+            # Lazily-deleted cancelled orders may still be sitting at the front of
+            # this level -- purge them before matching against whatever's left.
+            while level and level[0].status is OrderStatus.CANCELLED:
+                level.popleft()
+            if not level:
+                del opposite[level_price]
+                continue
+
+            resting = level[0]  # oldest live order at this price level (time priority)
 
             fill_qty = min(order.remaining, resting.remaining)
             order.remaining -= fill_qty
@@ -134,3 +143,18 @@ class OrderBook:
         order.status = OrderStatus.FILLED if order.remaining == 0 else OrderStatus.CANCELLED
 
         return trades
+
+    def cancel_order(self, order_id: int) -> bool:
+        """Cancel a resting order (lazy deletion -- marked CANCELLED and skipped by
+        the matching loop when it's next encountered, rather than removed from its
+        deque immediately).
+
+        Returns True if the order was resting and is now cancelled, False if it was
+        already in a terminal state (FILLED/CANCELLED) -- a no-op either way, but
+        the caller can tell the two apart. Raises KeyError for an unknown order_id.
+        """
+        order = self.orders_by_id[order_id]
+        if order.status in (OrderStatus.FILLED, OrderStatus.CANCELLED):
+            return False
+        order.status = OrderStatus.CANCELLED
+        return True
