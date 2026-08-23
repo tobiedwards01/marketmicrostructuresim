@@ -9,5 +9,7 @@ wheels/
 # Virtual environments
 .venv
 
-# Generated output
-examples/output/
+# Generated output -- the dashboard is regenerate-on-demand, but the Phase 4
+# analysis images are committed since ANALYSIS.md references them directly
+examples/output/*
+!examples/output/phase4_*.png
