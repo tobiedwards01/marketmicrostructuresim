@@ -115,11 +115,23 @@ class TestQTableUpdate:
         assert agent.q_table[state0][12] == pytest.approx(expected_q)
         assert agent._last_state == state1
 
+    def test_visiting_a_state_increments_its_visit_count(self):
+        agent = make_agent()
+        agent.q_table[(2, 0)] = [0.0] * agent.n_actions
+        loop = EventLoop([agent])
+
+        agent.act(loop.time, loop)
+        loop.time = 0.5
+        agent.act(loop.time, loop)
+
+        assert agent.visit_counts[(2, 0)] == 2
+
 
 class TestResetEpisode:
-    def test_clears_episode_state_but_not_the_q_table(self):
+    def test_clears_episode_state_but_not_the_q_table_or_visit_counts(self):
         agent = make_agent()
         agent.q_table[(2, 0)] = [1.0] * agent.n_actions
+        agent.visit_counts[(2, 0)] = 5
         agent.inventory = 15
         agent.cash = -500.0
         agent._bid_order_id = 42
@@ -140,13 +152,16 @@ class TestResetEpisode:
         assert agent._last_action is None
         assert agent._last_mark_to_market is None
         assert agent.q_table[(2, 0)] == [1.0] * agent.n_actions  # untouched
+        assert agent.visit_counts[(2, 0)] == 5  # untouched
 
 
 class TestSaveLoad:
-    def test_round_trips_the_q_table(self, tmp_path):
+    def test_round_trips_the_q_table_and_visit_counts(self, tmp_path):
         agent = make_agent()
         agent.q_table[(0, 0)] = [1.0, 2.0, 3.0] + [0.0] * (agent.n_actions - 3)
         agent.q_table[(4, 2)] = [0.5] * agent.n_actions
+        agent.visit_counts[(0, 0)] = 12
+        agent.visit_counts[(4, 2)] = 3
 
         path = tmp_path / "model.json"
         agent.save(path)
@@ -155,6 +170,7 @@ class TestSaveLoad:
         loaded.load(path)
 
         assert loaded.q_table == agent.q_table
+        assert loaded.visit_counts == agent.visit_counts
 
 
 class TestGreedyQuotes:

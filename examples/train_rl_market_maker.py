@@ -14,7 +14,7 @@ from mm_sim.agents.rl_market_maker import QLearningMarketMaker
 from mm_sim.event_loop import EventLoop
 from run_simulation import END_TIME, REFERENCE_PRICE, build_agents
 
-N_EPISODES = 600
+N_EPISODES = 1200
 EPSILON_START = 0.3
 EPSILON_END = 0.02
 EPSILON_DECAY = 0.99  # multiplicative, per episode
@@ -74,6 +74,10 @@ def main() -> None:
     MODEL_PATH.parent.mkdir(exist_ok=True)
     rl_agent.save(MODEL_PATH)
     print(f"\nSaved trained model to {MODEL_PATH} ({len(rl_agent.q_table)} states visited)")
+
+    print("\nPer-state visit counts (inventory_bucket, time_bucket):")
+    for state in sorted(rl_agent.visit_counts, key=lambda s: -rl_agent.visit_counts[s]):
+        print(f"  {state}  n={rl_agent.visit_counts[state]:>6}")
 
     OUTPUT_DIR.mkdir(exist_ok=True)
     fig, ax = plt.subplots(figsize=(8, 4.5))

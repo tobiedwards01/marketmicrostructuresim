@@ -52,6 +52,7 @@ class QLearningMarketMaker(QuotingAgent):
         self.discount_factor = discount_factor
         self.epsilon = epsilon
         self.q_table: dict[tuple[int, int], list[float]] = {}
+        self.visit_counts: dict[tuple[int, int], int] = {}
         self._last_state: Optional[tuple[int, int]] = None
         self._last_action: Optional[int] = None
         self._last_mark_to_market: Optional[float] = None
@@ -107,6 +108,7 @@ class QLearningMarketMaker(QuotingAgent):
         center = mid if mid is not None else float(self.reference_price)
         current_mtm = self.mark_to_market(center)
         state = self._state(sim_time)
+        self.visit_counts[state] = self.visit_counts.get(state, 0) + 1
 
         if self._last_state is not None:
             reward = current_mtm - self._last_mark_to_market
@@ -150,8 +152,10 @@ class QLearningMarketMaker(QuotingAgent):
 
     def save(self, path: Path) -> None:
         serializable_q = {f"{inv},{t}": values for (inv, t), values in self.q_table.items()}
+        serializable_counts = {f"{inv},{t}": n for (inv, t), n in self.visit_counts.items()}
         payload = {
             "q_table": serializable_q,
+            "visit_counts": serializable_counts,
             "half_spread_choices": list(self.HALF_SPREAD_CHOICES),
             "skew_choices": list(self.SKEW_CHOICES),
         }
@@ -161,4 +165,7 @@ class QLearningMarketMaker(QuotingAgent):
         payload = json.loads(Path(path).read_text())
         self.q_table = {
             tuple(int(x) for x in key.split(",")): values for key, values in payload["q_table"].items()
+        }
+        self.visit_counts = {
+            tuple(int(x) for x in key.split(",")): n for key, n in payload.get("visit_counts", {}).items()
         }
