@@ -2,6 +2,7 @@ import heapq
 from itertools import count
 from typing import TYPE_CHECKING, Optional
 
+from mm_sim.metrics import BookSnapshot, OrderImpact
 from mm_sim.models import Order, OrderType, Side, Trade
 from mm_sim.order_book import OrderBook
 
@@ -14,12 +15,18 @@ class EventLoop:
     in time order (seq breaks ties deterministically -- see DESIGN.md). Agents act
     through this loop's submit_limit/submit_market/cancel, which build the actual
     Order objects (assigning order_id/seq centrally) and forward to the OrderBook.
+
+    Every order-book-touching action also records a BookSnapshot and an
+    OrderImpact (see metrics.py) -- these are the raw time series Phase 3's
+    metrics (spread/depth over time, price impact) get computed from.
     """
 
     def __init__(self, agents: list["Agent"]) -> None:
         self.book = OrderBook()
         self.agents = {agent.agent_id: agent for agent in agents}
         self.trade_log: list[Trade] = []
+        self.book_snapshots: list[BookSnapshot] = []
+        self.order_impacts: list[OrderImpact] = []
         self.time: float = 0.0
 
         self._queue: list[tuple[float, int, int]] = []
@@ -61,15 +68,50 @@ class EventLoop:
 
     def submit_limit(self, agent_id: int, side: Side, price: int, quantity: int) -> tuple[Order, list[Trade]]:
         order = self._new_order(agent_id, side, OrderType.LIMIT, price, quantity)
+        mid_before = self.book.mid_price
         trades = self.book.submit_limit_order(order)
         self.trade_log.extend(trades)
+        self._record(order, mid_before)
         return order, trades
 
     def submit_market(self, agent_id: int, side: Side, quantity: int) -> tuple[Order, list[Trade]]:
         order = self._new_order(agent_id, side, OrderType.MARKET, None, quantity)
+        mid_before = self.book.mid_price
         trades = self.book.submit_market_order(order)
         self.trade_log.extend(trades)
+        self._record(order, mid_before)
         return order, trades
 
     def cancel(self, order_id: int) -> bool:
-        return self.book.cancel_order(order_id)
+        cancelled = self.book.cancel_order(order_id)
+        self._record_snapshot()
+        return cancelled
+
+    def _record(self, order: Order, mid_before: Optional[float]) -> None:
+        """Record a BookSnapshot and an OrderImpact for one submitted order."""
+        self.order_impacts.append(
+            OrderImpact(
+                timestamp=self.time,
+                agent_id=order.agent_id,
+                side=order.side,
+                order_type=order.order_type,
+                requested_quantity=order.quantity,
+                filled_quantity=order.quantity - order.remaining,
+                mid_price_before=mid_before,
+                mid_price_after=self.book.mid_price,
+            )
+        )
+        self._record_snapshot()
+
+    def _record_snapshot(self) -> None:
+        self.book_snapshots.append(
+            BookSnapshot(
+                timestamp=self.time,
+                best_bid=self.book.best_bid,
+                best_ask=self.book.best_ask,
+                spread=self.book.spread,
+                mid_price=self.book.mid_price,
+                bid_depth=self.book.bid_depth,
+                ask_depth=self.book.ask_depth,
+            )
+        )
