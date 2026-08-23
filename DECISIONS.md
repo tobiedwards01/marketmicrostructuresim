@@ -4,6 +4,13 @@ Running log of non-trivial design choices: what was picked, why, and what altern
 
 ---
 
+## Phase 3
+
+### NoiseTrader holds one live order, cancelled and replaced each wake
+**Decision:** `NoiseTrader` now cancels its own previous resting order (if any) before submitting a new one, matching the classic Gode & Sunder (1993) zero-intelligence trader -- one outstanding order per trader, replaced each period.
+**Why:** Building the Phase 3 metrics dashboard immediately surfaced two artifacts from the old "never cancel" behavior: (1) the spread chart showed genuine negative values -- a trader's own new order, quoted around a drifting mid price, could end up priced on the wrong side of an old resting order it never cancelled; self-trade prevention correctly refuses to match the same agent against itself, but per the Phase 0 STP decision it leaves both resting rather than cancelling one, so best_bid/best_ask briefly reported a "locked" price from one agent's own crossed quotes. (2) order book depth grew unboundedly over the run instead of settling into a steady state, since nothing ever expired. Both are downstream of the same root cause and both are fixed by this one change -- confirmed by re-running the dashboard before/after.
+**Alternative considered:** Filter negative spreads out at the metrics/plotting layer instead of fixing the agent. Rejected -- that would hide a real (if minor) modeling gap rather than fix it, and the unbounded depth growth would still be there; fixing the agent's behavior is more correct and happens to match the actual textbook model this agent type is based on.
+
 ## Phase 2
 
 ### NoiseTrader anchors to the live mid price, not a fixed reference price
