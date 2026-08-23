@@ -30,17 +30,31 @@ class OrderBook:
             raise ValueError(f"order_id {order.order_id} has already been submitted")
         self._submitted_order_ids.add(order.order_id)
 
+    def _live_best(self, book: "SortedDict[int, deque[Order]]", from_start: bool) -> Optional[int]:
+        """Best price with a live (non-cancelled) order actually resting there.
+
+        Lazy deletion means a cancelled order can still be sitting at the front of
+        the best price level -- purge it (and the level entirely, if nothing live
+        is left) before reporting a price, otherwise best_bid/best_ask could report
+        a price that nothing tradeable is resting at.
+        """
+        while book:
+            price, level = book.peekitem(0 if from_start else -1)
+            while level and level[0].status is OrderStatus.CANCELLED:
+                level.popleft()
+            if not level:
+                del book[price]
+                continue
+            return price
+        return None
+
     @property
     def best_bid(self) -> Optional[int]:
-        if not self.bids:
-            return None
-        return self.bids.peekitem(-1)[0]
+        return self._live_best(self.bids, from_start=False)  # best bid = max key
 
     @property
     def best_ask(self) -> Optional[int]:
-        if not self.asks:
-            return None
-        return self.asks.peekitem(0)[0]
+        return self._live_best(self.asks, from_start=True)  # best ask = min key
 
     @property
     def spread(self) -> Optional[int]:

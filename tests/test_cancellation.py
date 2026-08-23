@@ -27,16 +27,19 @@ class TestCancelRestingOrder:
         assert book.cancel_order(1) is True
         assert order.status is OrderStatus.CANCELLED
 
-    def test_cancelling_the_only_order_at_a_level_still_leaves_it_in_the_deque(self):
-        # Lazy deletion: cancel doesn't touch the book structure directly.
+    def test_cancelling_the_only_order_at_a_level_leaves_it_in_the_deque_until_next_touch(self):
+        # Lazy deletion: cancel doesn't touch the book structure directly...
         book = OrderBook()
         order = make_limit(1, Side.BUY, price=9_900, quantity=10)
         book.submit_limit_order(order)
         book.cancel_order(1)
 
         assert order in book.bids[9_900]
-        # but best_bid still reports it -- it's only purged when matching walks past it
-        assert book.best_bid == 9_900
+
+        # ...but best_bid purges cancelled fronts on access, since a stale price
+        # with nothing tradeable resting there would be a misleading thing to report
+        assert book.best_bid is None
+        assert 9_900 not in book.bids
 
 
 class TestCancelTerminalOrder:
