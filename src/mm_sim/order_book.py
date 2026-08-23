@@ -1,9 +1,14 @@
 from collections import deque
+from itertools import count
 from typing import Optional
 
 from sortedcontainers import SortedDict
 
-from mm_sim.models import Order, Side
+from mm_sim.models import Order, OrderStatus, OrderType, Side, Trade
+
+
+def _opposite(side: Side) -> Side:
+    return Side.SELL if side is Side.BUY else Side.BUY
 
 
 class OrderBook:
@@ -13,6 +18,7 @@ class OrderBook:
         self.bids: SortedDict[int, deque[Order]] = SortedDict()  # ascending; best bid = max key
         self.asks: SortedDict[int, deque[Order]] = SortedDict()  # ascending; best ask = min key
         self.orders_by_id: dict[int, Order] = {}
+        self._trade_ids = count(1)
 
     @property
     def best_bid(self) -> Optional[int]:
@@ -50,3 +56,60 @@ class OrderBook:
             book[order.price] = deque()
         book[order.price].append(order)
         self.orders_by_id[order.order_id] = order
+
+    def _crosses(self, order: Order) -> bool:
+        """Whether `order` (at its price) can currently trade against the opposite side."""
+        opposite = self._book_for(_opposite(order.side))
+        if not opposite:
+            return False
+        if order.side is Side.BUY:
+            return opposite.peekitem(0)[0] <= order.price
+        return opposite.peekitem(-1)[0] >= order.price
+
+    def submit_limit_order(self, order: Order) -> list[Trade]:
+        """Match `order` against the opposite side, resting any unfilled remainder."""
+        if order.order_type is not OrderType.LIMIT:
+            raise ValueError("submit_limit_order requires a LIMIT order")
+
+        trades: list[Trade] = []
+        opposite = self._book_for(_opposite(order.side))
+
+        while order.remaining > 0 and self._crosses(order):
+            level_price = opposite.peekitem(0 if order.side is Side.BUY else -1)[0]
+            level = opposite[level_price]
+            resting = level[0]  # oldest order at this price level (time priority)
+
+            fill_qty = min(order.remaining, resting.remaining)
+            order.remaining -= fill_qty
+            resting.remaining -= fill_qty
+
+            trades.append(
+                Trade(
+                    trade_id=next(self._trade_ids),
+                    timestamp=order.timestamp,
+                    price=level_price,
+                    quantity=fill_qty,
+                    maker_order_id=resting.order_id,
+                    taker_order_id=order.order_id,
+                    maker_agent_id=resting.agent_id,
+                    taker_agent_id=order.agent_id,
+                    aggressor_side=order.side,
+                )
+            )
+
+            if resting.remaining == 0:
+                resting.status = OrderStatus.FILLED
+                level.popleft()
+                if not level:
+                    del opposite[level_price]
+            else:
+                resting.status = OrderStatus.PARTIALLY_FILLED
+
+        if order.remaining == 0:
+            order.status = OrderStatus.FILLED
+        else:
+            if order.remaining < order.quantity:
+                order.status = OrderStatus.PARTIALLY_FILLED
+            self._rest(order)
+
+        return trades
