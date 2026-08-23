@@ -3,6 +3,7 @@ import pytest
 from mm_sim.analysis import (
     autocorrelation,
     bucket_price_impact_by_size,
+    estimate_volatility,
     mid_price_returns,
     pearson_correlation,
 )
@@ -39,6 +40,32 @@ class TestMidPriceReturns:
 
         assert len(returns) == 1
         assert returns[0] == pytest.approx(0.02)  # 100 -> 102, skipping the gap entirely
+
+
+class TestEstimateVolatility:
+    def test_known_price_path_matches_hand_calculation(self):
+        # two steps of +1.0 each, one unit of time apart -> sum_sq=2, elapsed=2 -> sigma=1.0
+        snapshots = [make_snapshot(0, 100.0), make_snapshot(1, 101.0), make_snapshot(2, 102.0)]
+        assert estimate_volatility(snapshots) == pytest.approx(1.0)
+
+    def test_scales_with_elapsed_time(self):
+        # same two +1.0 steps but spread over 4 units of time instead of 2 ->
+        # sum_sq=2, elapsed=4 -> sigma = sqrt(0.5)
+        snapshots = [make_snapshot(0, 100.0), make_snapshot(2, 101.0), make_snapshot(4, 102.0)]
+        assert estimate_volatility(snapshots) == pytest.approx(0.5**0.5)
+
+    def test_no_price_movement_gives_zero_volatility(self):
+        snapshots = [make_snapshot(0, 100.0), make_snapshot(1, 100.0), make_snapshot(2, 100.0)]
+        assert estimate_volatility(snapshots) == 0.0
+
+    def test_ignores_snapshots_with_no_mid_price(self):
+        with_gap = [make_snapshot(0, 100.0), make_snapshot(1, None), make_snapshot(2, 102.0)]
+        without_gap = [make_snapshot(0, 100.0), make_snapshot(2, 102.0)]
+        assert estimate_volatility(with_gap) == pytest.approx(estimate_volatility(without_gap))
+
+    def test_fewer_than_two_points_returns_zero(self):
+        assert estimate_volatility([]) == 0.0
+        assert estimate_volatility([make_snapshot(0, 100.0)]) == 0.0
 
     def test_empty_or_single_snapshot_gives_no_returns(self):
         assert mid_price_returns([]) == []
