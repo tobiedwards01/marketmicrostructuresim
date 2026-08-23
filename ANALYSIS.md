@@ -283,3 +283,105 @@ honestly rather than by construction), a decaying learning rate for a real
 fixed-point guarantee instead of a constant one, and a properly estimated `k`
 (order-flow decay) rather than a hand-picked value -- the one AS parameter this
 phase didn't calibrate from data the way it did for `σ`.
+
+## Phase 6 — Stress Test
+
+A mini flash-crash case study: a sudden, large drop in the informed trader's
+"true price" partway through an otherwise normal session, and a look at how
+each of the three market makers built across this project -- naive
+fixed-spread, Avellaneda-Stoikov, and the trained Q-learning agent -- holds up.
+Produced by [`examples/phase6_stress_test.py`](examples/phase6_stress_test.py).
+
+### The scenario
+
+Same 5-noise-trader + 1-informed-trader setup used throughout, run for 200
+time units with one market maker at a time. At t=100, the informed trader's
+belief is knocked down by $15 (`InformedTrader.true_price -= 1500`, in ticks)
+-- simulating unexpected bad news -- via two back-to-back calls to
+`EventLoop.run_until()` with the perturbation applied in between. Everything
+downstream of that (the burst of aggressive informed selling, how far the
+price actually moves, how each market maker reacts) is genuine emergent
+behaviour, not scripted.
+
+**One honest caveat about the comparison's design.** This is *not* a
+controlled experiment where the market path is held fixed and only the market
+maker's reaction is observed. Each market maker runs in its own, fully
+separate simulated market, and every other agent reacts to *that* market's
+own live mid price -- so a different market maker genuinely produces a
+different emergent market, not just a different P&L outcome layered on an
+identical price path. That's realistic (a real market maker's own liquidity
+provision does shape how a shock propagates), but it means the three runs
+below differ in more than just "the market maker's strategy," and any
+causal claim about *why* is a plausible mechanism, not an isolated,
+proven cause.
+
+### Results
+
+![Phase 6 stress test](examples/output/phase6_stress_test.png)
+
+| Market maker | min mid price | max spread | inventory @shock | inventory final | P&L @shock | P&L final |
+|---|---|---|---|---|---|---|
+| Naive | $99.32 (t=64, *before* the shock) | $0.32 | -29 | **+57** (over its own 50-unit cap) | $128 | $316 |
+| Avellaneda-Stoikov | **$84.99** (t=110) | **$3.09** | -2 | -11 | -$441 | **-$915** |
+| Q-learning (trained) | $99.41 (t=108) | $0.60 | -8 | -5 | $185 | **$402** |
+
+**Naive barely reacted in price terms, but blew through its own risk limit.**
+Its fixed spread doesn't adapt to anything, so it just kept mechanically
+absorbing the burst of informed selling at a stable price -- its market's
+mid price never even dipped as far during the shock as it had from ordinary
+noise thirty-some time units *earlier*. But "stable price" isn't the same as
+"safe": its inventory ended at +57, seven units past the 50-unit cap it's
+supposed to respect (the same overshoot mechanism noted back in Phase 2 --
+the limit check only gates *whether* to quote, not how to *size* a quote
+right at the boundary). It also ended up the most profitable of the three in
+this specific run, which is closer to luck than skill: it accumulated a large
+long position at falling prices during the crash, and the price happened to
+recover by the end of the run. A single run's P&L outcome for an
+inventory-blind strategy shouldn't be read as "it handled the shock well."
+
+**Avellaneda-Stoikov's market saw a genuine, deep crash -- a real 15% move to
+$84.99 -- and its own spread spiked to $3.09, over ten times its typical
+level.** This is the opposite of what "optimal" market making is supposed to
+buy you. The likely mechanism: AS's reservation price recenters on the *live*
+mid every requote, and during the crash the mid itself was gapping violently:
+each new quote chased an already-moving target rather than anchoring it,
+and (per the caveat above) that thinner, chasing liquidity is a plausible
+contributor to the mid gapping as far as it did in AS's specific market. Its
+own P&L reflects this badly -- down to -$915 by the end, the worst of the
+three, and still falling. Whether the spread spike itself was cause or
+symptom of the deeper crash isn't something this case study isolates
+cleanly; what's clear is that AS's inventory management (it stayed close to
+flat throughout, -2 to -11 units) did *not* translate into good P&L here,
+undercutting the theory's implicit promise that managing inventory well is
+enough.
+
+**The Q-learning agent handled it best on the metric that actually matters.**
+Its market's price dipped only slightly (to $99.41), its spread widened
+moderately (to $0.60 -- more than Naive, nowhere near AS), it took on
+meaningful inventory during the burst (peaking near 46 units, close to its
+own cap, so it wasn't dodging the flow) without blowing through its limit,
+and it finished with the best P&L of the three ($402, still climbing). It was
+never given the AS formula, a crash-detection rule, or any explicit notion of
+"this is a stress scenario" -- it learned a policy against ordinary order
+flow (Phase 5) that happened to generalize reasonably well to this one.
+
+### Summary
+
+The naive market maker survived on price stability but not on risk discipline
+(busted its own inventory cap). The theoretically-optimal Avellaneda-Stoikov
+agent kept tight inventory control but presided over the worst price
+dislocation and the worst P&L of the three -- a reminder that a model's
+theoretical optimality is only as good as its calibration and its
+assumptions (constant volatility, no adverse-selection term) holding in the
+scenario it's actually facing. The trained Q-learning agent, with the least
+theoretical justification of the three, produced the most balanced outcome:
+contained price impact, controlled (not zero) inventory, and the best P&L.
+
+What I'd change with more time: multiple replicate shocks (different seeds,
+different shock sizes/timing) rather than one illustrative run, to see how
+much of this ordering is robust versus specific to this exact random draw --
+Naive's positive P&L in particular looks like it could easily flip sign under
+a shock that doesn't recover by the end of the run. Also worth adding: a
+version of AS with volatility re-estimated in real time (rather than
+calibrated once from a calm baseline) to see whether that closes the gap with
+its theoretical promise during genuine stress.
