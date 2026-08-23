@@ -5,6 +5,7 @@ description = "Limit-order-book market microstructure simulator with agent-based
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "matplotlib>=3.11.1",
     "sortedcontainers>=2.4.0",
 ]
 
