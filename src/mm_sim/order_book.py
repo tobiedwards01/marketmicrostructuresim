@@ -19,6 +19,16 @@ class OrderBook:
         self.asks: SortedDict[int, deque[Order]] = SortedDict()  # ascending; best ask = min key
         self.orders_by_id: dict[int, Order] = {}
         self._trade_ids = count(1)
+        self._submitted_order_ids: set[int] = set()
+
+    def _register_new_order(self, order: Order) -> None:
+        """Guard against a caller reusing an order_id -- checked against every order
+        ever submitted, not just currently-resting ones (orders_by_id only tracks
+        orders that rested at some point, so it can't be used for this on its own).
+        """
+        if order.order_id in self._submitted_order_ids:
+            raise ValueError(f"order_id {order.order_id} has already been submitted")
+        self._submitted_order_ids.add(order.order_id)
 
     @property
     def best_bid(self) -> Optional[int]:
@@ -147,6 +157,7 @@ class OrderBook:
         """Match `order` against the opposite side, resting any unfilled remainder."""
         if order.order_type is not OrderType.LIMIT:
             raise ValueError("submit_limit_order requires a LIMIT order")
+        self._register_new_order(order)
 
         if order.side is Side.BUY:
             price_ok = lambda level_price: level_price <= order.price
@@ -170,6 +181,7 @@ class OrderBook:
         """
         if order.order_type is not OrderType.MARKET:
             raise ValueError("submit_market_order requires a MARKET order")
+        self._register_new_order(order)
 
         trades = self._match(order, price_ok=lambda level_price: True)
 
