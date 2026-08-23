@@ -5,13 +5,10 @@ agents (noise traders, an informed trader, market makers), used to study emergen
 microstructure dynamics — spreads, price impact, adverse selection — and to train a
 reinforcement-learning market-making agent inside the simulated market.
 
-See [DESIGN.md](DESIGN.md) for the core data model and event-loop design, and
-[DECISIONS.md](DECISIONS.md) for a running log of non-trivial design choices and why
-they were made.
-
 ## Status
 
-Phase 0 (research & design) complete. Phase 1 (core matching engine) in progress.
+Phase 0 (research & design), Phase 1 (core matching engine), and Phase 2 (baseline
+agent population) complete. Phase 3 (simulation metrics pipeline) up next.
 
 ## Setup
 
@@ -22,10 +19,22 @@ uv sync
 uv run pytest
 ```
 
+## Try it
+
+```bash
+uv run python examples/demo_matching.py    # a handful of orders against the matching engine directly
+uv run python examples/run_simulation.py   # a full run: noise traders + informed trader + market maker
+```
+
 ## Architecture
 
-_To be filled in as the matching engine, agent population, and simulation framework
-are built out — see DESIGN.md in the meantime._
+- `src/mm_sim/models.py` — `Order`, `Trade`, and their enums
+- `src/mm_sim/order_book.py` — the limit order book: price-time-priority matching, market orders (IOC), cancellation, self-trade prevention
+- `src/mm_sim/event_loop.py` — heapq-based discrete-event simulator that wakes agents in timestamp order
+- `src/mm_sim/agents/` — `NoiseTrader`, `InformedTrader`, `NaiveMarketMaker`
+
+See [DESIGN.md](DESIGN.md) for the data model and event-loop design in more depth, and
+[DECISIONS.md](DECISIONS.md) for why things ended up the way they did.
 
 ## Results
 
