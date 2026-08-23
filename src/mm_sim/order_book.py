@@ -57,6 +57,36 @@ class OrderBook:
         book[order.price].append(order)
         self.orders_by_id[order.order_id] = order
 
+    def _find_match(self, level: "deque[Order]", taker_agent_id: int) -> Optional[Order]:
+        """Scan a price level (oldest first) for the first order eligible to trade
+        against `taker_agent_id`: purges any cancelled orders it passes over (lazy
+        deletion cleanup) and skips -- without removing -- any resting order that
+        belongs to the taker's own agent (self-trade prevention). Returns None if
+        no eligible order remains, which can happen even if the level isn't empty
+        (e.g. the only orders left there are the taker's own).
+        """
+        i = 0
+        while i < len(level):
+            candidate = level[i]
+            if candidate.status is OrderStatus.CANCELLED:
+                del level[i]
+                continue  # next element has shifted into position i
+            if candidate.agent_id == taker_agent_id:
+                i += 1
+                continue
+            return candidate
+        return None
+
+    def _best_unskipped_price(
+        self, book: "SortedDict[int, deque[Order]]", ascending: bool, skip_prices: set[int]
+    ) -> Optional[int]:
+        keys = book.keys()
+        ordered = keys if ascending else reversed(keys)
+        for price in ordered:
+            if price not in skip_prices:
+                return price
+        return None
+
     def _match(self, order: Order, price_ok: Callable[[int], bool]) -> list[Trade]:
         """Sweep the opposite side, filling `order` against resting orders while
         `price_ok(level_price)` holds. Does not rest or finalize `order`'s status --
@@ -65,22 +95,22 @@ class OrderBook:
         """
         trades: list[Trade] = []
         opposite = self._book_for(_opposite(order.side))
+        ascending = order.side is Side.BUY  # BUY matches asks best-first ascending; SELL matches bids best-first descending
+        skip_prices: set[int] = set()  # price levels with nothing left eligible for this order (e.g. only its own resting orders)
 
-        while order.remaining > 0 and opposite:
-            level_price = opposite.peekitem(0 if order.side is Side.BUY else -1)[0]
-            if not price_ok(level_price):
+        while order.remaining > 0:
+            level_price = self._best_unskipped_price(opposite, ascending, skip_prices)
+            if level_price is None or not price_ok(level_price):
                 break
             level = opposite[level_price]
 
-            # Lazily-deleted cancelled orders may still be sitting at the front of
-            # this level -- purge them before matching against whatever's left.
-            while level and level[0].status is OrderStatus.CANCELLED:
-                level.popleft()
-            if not level:
-                del opposite[level_price]
+            resting = self._find_match(level, order.agent_id)
+            if resting is None:
+                if not level:
+                    del opposite[level_price]
+                else:
+                    skip_prices.add(level_price)  # level has orders, but all belong to `order`'s own agent
                 continue
-
-            resting = level[0]  # oldest live order at this price level (time priority)
 
             fill_qty = min(order.remaining, resting.remaining)
             order.remaining -= fill_qty
@@ -102,7 +132,10 @@ class OrderBook:
 
             if resting.remaining == 0:
                 resting.status = OrderStatus.FILLED
-                level.popleft()
+                for i, o in enumerate(level):
+                    if o is resting:
+                        del level[i]
+                        break
                 if not level:
                     del opposite[level_price]
             else:

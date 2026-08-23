@@ -143,12 +143,15 @@ class TestPriceTimePriority:
 
 class TestBookNeverCrossed:
     def test_book_is_never_crossed_after_a_sequence_of_orders(self):
+        # Distinct agent_ids throughout -- otherwise self-trade prevention would
+        # legitimately block some of these crosses, which is a different behavior
+        # (see test_self_trade_prevention.py) and not what this test is checking.
         book = OrderBook()
         orders = [
-            make_order(1, Side.BUY, price=9_990, quantity=10),
-            make_order(2, Side.SELL, price=10_010, quantity=10),
-            make_order(3, Side.BUY, price=10_020, quantity=5),  # crosses ask
-            make_order(4, Side.SELL, price=9_985, quantity=20),  # crosses remaining bids
+            make_order(1, Side.BUY, price=9_990, quantity=10, agent_id=1),
+            make_order(2, Side.SELL, price=10_010, quantity=10, agent_id=2),
+            make_order(3, Side.BUY, price=10_020, quantity=5, agent_id=3),  # crosses ask
+            make_order(4, Side.SELL, price=9_985, quantity=20, agent_id=4),  # crosses remaining bids
         ]
         for o in orders:
             book.submit_limit_order(o)
