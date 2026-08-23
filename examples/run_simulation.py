@@ -17,7 +17,12 @@ REFERENCE_PRICE = 10_000  # $100.00, in cents
 END_TIME = 200.0
 
 
-def build_agents() -> list:
+def build_agents(informed_arrival_rate: float = 0.3, seed_offset: int = 0) -> list:
+    """`informed_arrival_rate` and `seed_offset` are exposed for Phase 4's
+    controlled experiments -- sweeping informed-trading intensity while holding
+    everything else fixed, or re-running the same setup with a different random
+    seed set for replication, without touching the rest of the agent config.
+    """
     noise_traders = [
         NoiseTrader(
             agent_id=100 + i,
@@ -26,7 +31,7 @@ def build_agents() -> list:
             min_quantity=1,
             max_quantity=10,
             arrival_rate=1.5,
-            seed=1000 + i,
+            seed=1000 + i + seed_offset,
         )
         for i in range(5)
     ]
@@ -37,8 +42,8 @@ def build_agents() -> list:
         signal_noise_std=5.0,
         edge_threshold=15,
         quantity=10,
-        arrival_rate=0.3,
-        seed=2000,
+        arrival_rate=informed_arrival_rate,
+        seed=2000 + seed_offset,
     )
     market_maker = NaiveMarketMaker(
         agent_id=300,
