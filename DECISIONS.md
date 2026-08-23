@@ -4,6 +4,20 @@ Running log of non-trivial design choices: what was picked, why, and what altern
 
 ---
 
+## Phase 2
+
+### best_bid/best_ask purge cancelled orders from the front on access
+**Decision:** `OrderBook.best_bid`/`best_ask` now walk past (and delete) any cancelled order sitting at the front of the best price level before reporting a price, rather than trusting whatever `SortedDict.peekitem` returns.
+**Why:** Lazy deletion (see Phase 0) means a cancelled order can sit in its deque until matching happens to walk past it. That's fine for matching itself, which already skips cancelled orders -- but `best_bid`/`best_ask` were reading the raw price key regardless of whether anything live was actually resting there. Discovered via `NaiveMarketMaker`: it cancels its old quote and immediately reads `mid_price` to decide where to re-quote, and was getting a stale price back for a level with nothing tradeable left in it. Since these are read properties used for decisions (not just display), a stale answer is a real correctness bug, not a cosmetic one.
+**Alternative considered:** Track a separate live-quantity counter per price level, decremented on cancel, so reads never need to touch the deque. More bookkeeping for the same result; purging on read is simpler and keeps the "cleaned up on next touch" lazy-deletion contract in one place.
+
+### Agents reconcile fills via the shared trade log, not just their own submission's return value
+**Decision:** `NaiveMarketMaker` (and any future agent that needs to track its own position) tracks a cursor into `EventLoop.trade_log` and reconciles inventory from every trade since it last checked -- both trades where it was the maker (resting order got hit by someone else) and where it was the taker (its own order crossed on submission) -- rather than relying only on the trades returned directly from its own `submit_limit`/`submit_market` calls.
+**Why:** An agent's resting order can be filled by *any other agent* at *any later wake*, not just at the instant it was submitted. The MM's own `market.submit_limit(...)` call only returns trades that happened synchronously during that call; a fill that happens later, when some other agent's incoming order crosses the MM's resting quote, has no way to reach the MM through that return value. Also matters where in `act()` this runs: reconciling must happen *before* the inventory-limit check that decides whether to quote, not just after, or the limit is enforced one wake-cycle late.
+**Alternative considered:** Push-based fill notification -- have the matching engine call back into affected agents directly when a trade happens. More real-time, but adds a dependency from `OrderBook`/`EventLoop` back into agent code and a lot more plumbing for a baseline agent that only checks its position once per requote cycle anyway. Worth reconsidering if a future agent (e.g. the Phase 5 RL market maker) needs to react to fills faster than its own polling interval.
+
+---
+
 ## Phase 0
 
 ### Tick size: $0.01, prices stored as integer cents
