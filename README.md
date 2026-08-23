@@ -8,8 +8,8 @@ reinforcement-learning market-making agent inside the simulated market.
 ## Status
 
 Phase 0 (research & design), Phase 1 (core matching engine), Phase 2 (baseline agent
-population), Phase 3 (simulation metrics pipeline), and Phase 4 (emergent behaviour
-analysis) complete. Phase 5 (learning market-making agent) up next.
+population), Phase 3 (simulation metrics pipeline), Phase 4 (emergent behaviour analysis),
+and Phase 5 (learning market-making agent) complete. Phase 6 (stress test) up next.
 
 ## Setup
 
@@ -27,6 +27,8 @@ uv run python examples/demo_matching.py    # a handful of orders against the mat
 uv run python examples/run_simulation.py   # a full run: noise traders + informed trader + market maker
 uv run python examples/plot_metrics.py     # the same run, plotted -- spread, depth, price impact, P&L per agent
 uv run python examples/phase4_analysis.py  # Phase 4 experiments: spread vs. informed intensity, impact concavity, volatility clustering
+uv run python examples/train_rl_market_maker.py               # trains the Q-learning market maker (~10-15 min, 1200 episodes)
+uv run python examples/compare_rl_vs_avellaneda_stoikov.py    # RL's learned quotes vs. the analytical benchmark
 ```
 
 ## Architecture
@@ -34,9 +36,10 @@ uv run python examples/phase4_analysis.py  # Phase 4 experiments: spread vs. inf
 - `src/mm_sim/models.py` — `Order`, `Trade`, and their enums
 - `src/mm_sim/order_book.py` — the limit order book: price-time-priority matching, market orders (IOC), cancellation, self-trade prevention, live depth
 - `src/mm_sim/event_loop.py` — heapq-based discrete-event simulator that wakes agents in timestamp order, recording metrics as it goes
-- `src/mm_sim/agents/` — `NoiseTrader`, `InformedTrader`, `NaiveMarketMaker`
+- `src/mm_sim/agents/` — `NoiseTrader`, `InformedTrader`, `NaiveMarketMaker`, `AvellanedaStoikovMarketMaker`, `QLearningMarketMaker` (all quoting agents share a `QuotingAgent` base)
 - `src/mm_sim/metrics.py` — book snapshots, per-order price impact, and mark-to-market P&L per agent
-- `src/mm_sim/analysis.py` — returns, autocorrelation, correlation, and price-impact bucketing used to test stylized facts against theory
+- `src/mm_sim/analysis.py` — returns, autocorrelation, correlation, volatility estimation, and price-impact bucketing used to test stylized facts against theory
+- `models/` — trained agent artifacts (`q_learning_market_maker.json`)
 
 See [DESIGN.md](DESIGN.md) for the data model and event-loop design in more depth, and
 [DECISIONS.md](DECISIONS.md) for why things ended up the way they did.
@@ -48,8 +51,12 @@ spread over time, order book depth over time, price impact vs. trade size, and P
 agent. A real run shows a clean adverse-selection pattern -- all five noise traders lose
 money, while the informed trader and market maker both profit.
 
-**[ANALYSIS.md](ANALYSIS.md)** is the Phase 4 deliverable: checking the simulator against
-three microstructure stylized facts. Spread widens with informed-trading intensity
+**[ANALYSIS.md](ANALYSIS.md)** has both write-ups. Phase 4 checks the simulator against
+three microstructure stylized facts: spread widens with informed-trading intensity
 (Glosten-Milgrom, r=0.989) and price impact is concave in trade size (vs. Kyle's linear
 baseline, r=-0.767) both hold up well; volatility clustering (Cont 2001) only holds up
-weakly, with a specific mechanistic explanation for why in the writeup.
+weakly, with a specific mechanistic explanation for why. Phase 5 trains a tabular
+Q-learning market maker and compares its learned quoting behaviour against the
+Avellaneda-Stoikov analytical benchmark -- RL independently rediscovers *that* spread
+should narrow near a horizon and *that* quotes should skew away from inventory in the
+right direction, purely from a P&L reward signal, though not AS's specific magnitudes.
