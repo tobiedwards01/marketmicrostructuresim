@@ -7,10 +7,13 @@ reinforcement-learning market-making agent inside the simulated market.
 
 ## Status
 
-Phase 0 (research & design), Phase 1 (core matching engine), Phase 2 (baseline agent
-population), Phase 3 (simulation metrics pipeline), Phase 4 (emergent behaviour analysis),
-Phase 5 (learning market-making agent), and Phase 6 (stress test) complete. Phase 7
-(final writeup/report) up next.
+All eight phases complete — research & design, core matching engine, baseline agent
+population, simulation metrics pipeline, emergent behaviour analysis, learning
+market-making agent, stress test, and the final report below.
+
+**[Read the full report (PDF)](report/Market_Microstructure_Simulator_Report.pdf)** —
+29 pages covering the problem, engine design, every agent, empirical validation, the RL
+results, and the stress test, written for a trading/quant-research audience.
 
 ## Setup
 
@@ -31,6 +34,7 @@ uv run python examples/phase4_analysis.py  # Phase 4 experiments: spread vs. inf
 uv run python examples/train_rl_market_maker.py               # trains the Q-learning market maker (~10-15 min, 1200 episodes)
 uv run python examples/compare_rl_vs_avellaneda_stoikov.py    # RL's learned quotes vs. the analytical benchmark
 uv run python examples/phase6_stress_test.py                  # flash-crash case study: Naive vs. AS vs. Q-learning
+uv run python report/build_report.py                          # rebuilds report/Market_Microstructure_Simulator_Report.pdf
 ```
 
 ## Architecture
